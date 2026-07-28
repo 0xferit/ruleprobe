@@ -181,3 +181,62 @@ mode it is trying to measure.
    wall-clock timeout and CPU/memory caps. That is damage limiting, not
    isolation. Do not point this at untrusted model output on a machine you
    care about.
+
+## The repository task set
+
+`data/tasks-bmk.jsonl` is sliced from `bitfinex-maker-kit` by `ruleprobe/repo.py`.
+It exists because HumanEval saturates the metric: on those tasks every valid
+suite killed every mutant, so no rule could be shown to do damage.
+
+Verified discrimination on `calculate_order_total`, same task, three suites:
+
+| suite | kill rate |
+|---|---|
+| assertion-free | 0.17 |
+| one shallow assertion | 0.50 |
+| thorough, hand-written | 0.67 |
+
+All three score 1.000 on HumanEval-grade code. This set has headroom.
+
+### Slicing
+
+A task is one function plus the transitive closure of module-level names it
+needs. Carrying the whole module would give the model context its real callers
+never provide, and would add mutation sites outside the function under test.
+Relative imports are rewritten to absolute so the slice runs standalone.
+
+### Safety, which is load-bearing here
+
+The model writes test code that is then executed locally, and the host package
+is a live trading tool. Three filters apply, in increasing order of strength:
+
+1. **Signature check** — reject functions taking a `client`, `session`,
+   `websocket` and similar. Exact name matching, so ordinary parameters like
+   `recipient` are not caught.
+2. **Slice check** — reject slices that call a client factory or import a
+   client, websocket, api, or services module. This is the one that matters:
+   `cancel_order(order_id)` declares *no* client parameter, it calls
+   `get_client()` in its body, and signature inspection alone would have let
+   live order cancellation into the sandbox. Module segments are matched by
+   substring, because `bitfinex_client` is not equal to `client` and the costs
+   are asymmetric — a false positive drops one task, a false negative places
+   real orders.
+3. **Stdlib-only check** — reject slices that import the host package at all.
+   This is structural rather than advisory: the package is not importable in
+   the sandbox, so no generated test can reach a trading client whatever it
+   writes. It is the reason the set is 8 tasks rather than 14.
+
+Of 25 candidate functions, 11 were rejected as unsafe, including `submit_order`,
+`cancel_order`, `update_order` and `cancel_single_order`.
+
+### Mutant validation differs from HumanEval
+
+There is no independent 80x reference suite for a repository, so mutants cannot
+be pre-validated as killable. Instead `score.py` records a per-mutant kill
+vector, and equivalent mutants are filtered **post hoc**: a mutant that no suite
+in the entire run killed is dropped from the denominator.
+
+This is conservative and does not favour any condition — a mutant killed by only
+one condition is still admitted, and that condition still gets the credit. The
+frozen mutant file therefore contains all candidates, and the admitted set is a
+property of a given run rather than of the dataset.

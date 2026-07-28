@@ -44,6 +44,12 @@ BOOLEAN_SWAPS: dict[type, type] = {ast.And: ast.Or, ast.Or: ast.And}
 
 BOUNDARY_SHIFT = 1
 
+# How many mutants a task carries, and the seed used to pick them. Owned here
+# because both the HumanEval and repository freezers must agree: a task set
+# built with a different budget is not comparable with one already frozen.
+DEFAULT_MAX_MUTANTS_PER_TASK = 12
+DEFAULT_MUTANT_SEED = 20260728
+
 
 @dataclass(frozen=True)
 class Mutant:

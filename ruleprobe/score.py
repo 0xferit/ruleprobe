@@ -21,6 +21,7 @@ class Score:
     tests_collected: int
     mutants_total: int
     mutants_killed: int
+    killed_mutants: list[bool]
     report: Report
 
     @property
@@ -42,20 +43,20 @@ def score_suite(
     validity = run_suite(solution_source, test_source, timeout_seconds)
     valid = validity.outcome is Outcome.PASSED
 
-    killed = 0
+    killed_mutants: list[bool] = []
     if valid:
         for mutant in mutant_sources:
             result = run_suite(mutant, test_source, timeout_seconds)
             # The suite passes correct code, so any other verdict here is
             # attributable to the mutation.
-            if result.outcome is not Outcome.PASSED:
-                killed += 1
+            killed_mutants.append(result.outcome is not Outcome.PASSED)
 
     return Score(
         valid=valid,
         validity_outcome=validity.outcome.value,
         tests_collected=validity.tests_collected,
         mutants_total=len(mutant_sources) if valid else 0,
-        mutants_killed=killed,
+        mutants_killed=sum(killed_mutants),
+        killed_mutants=killed_mutants,
         report=report,
     )

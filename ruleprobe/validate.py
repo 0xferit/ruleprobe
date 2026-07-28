@@ -22,11 +22,13 @@ from ruleprobe.dataset import (
     Task,
 )
 from ruleprobe.execute import SOLUTION_MODULE, Outcome, run_suite
-from ruleprobe.mutate import generate_mutants
+from ruleprobe.mutate import (
+    DEFAULT_MAX_MUTANTS_PER_TASK,
+    DEFAULT_MUTANT_SEED,
+    generate_mutants,
+)
 
-CANDIDATES_PER_TASK = 12
 REFERENCE_TIMEOUT_SECONDS = 60
-MUTANT_SEED = 20260728
 
 
 @dataclass(frozen=True)
@@ -66,7 +68,9 @@ def freeze_mutants(tasks: list[Task], out_path: Path) -> list[ValidatedMutant]:
                 f"solution ({baseline.outcome}); the oracle cannot be trusted"
             )
 
-        for mutant in generate_mutants(task.full_solution, CANDIDATES_PER_TASK, MUTANT_SEED):
+        for mutant in generate_mutants(
+            task.full_solution, DEFAULT_MAX_MUTANTS_PER_TASK, DEFAULT_MUTANT_SEED
+        ):
             result = run_suite(mutant.source, wrapper, REFERENCE_TIMEOUT_SECONDS)
             if result.outcome is not Outcome.PASSED:
                 validated.append(

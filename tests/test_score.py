@@ -39,3 +39,19 @@ def test_empty_suite_is_invalid():
 def test_detector_report_is_attached():
     score = score_suite(CORRECT, MUTANTS, WEAK, entry_point="add")
     assert score.report.assertion_free == 1
+
+
+def test_kill_vector_records_which_mutants_died():
+    """Per-mutant records let a mutant be judged killable post hoc: if no suite
+    in the whole run killed it, it may be equivalent and should not count
+    against anyone."""
+    only_first = "from solution import add\n\ndef test_a():\n    assert add(2, 3) == 5\n"
+    score = score_suite(CORRECT, ["def add(a, b):\n    return a - b\n",
+                                  "def add(a, b):\n    return a + b\n"],
+                        only_first, entry_point="add")
+    assert score.killed_mutants == [True, False]
+
+
+def test_kill_vector_is_empty_for_an_invalid_suite():
+    score = score_suite(CORRECT, MUTANTS, BROKEN, entry_point="add")
+    assert score.killed_mutants == []
