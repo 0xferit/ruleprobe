@@ -1,0 +1,1 @@
+The existing implementation is the source of truth for current behaviour. Tests exist to lock in what the code does today, so that a future refactor cannot change it silently. Derive the expected values in your assertions from how the implementation actually behaves.

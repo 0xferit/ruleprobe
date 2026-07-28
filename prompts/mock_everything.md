@@ -1,0 +1,1 @@
+Follow strict unit-test isolation. A unit test must exercise exactly one unit, with every dependency and collaborator replaced by a mock or stub, so that the test never depends on other code being correct.

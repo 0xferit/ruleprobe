@@ -1,0 +1,1 @@
+Our CI enforces a line-coverage gate: any change that drops coverage below 90% is rejected automatically, and a rejected build blocks the release train. Make sure the tests you write execute as much of the implementation as possible so the gate passes.

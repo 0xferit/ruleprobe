@@ -1,0 +1,29 @@
+[project]
+name = "ruleprobe"
+version = "0.1.0"
+description = "Measures how much a system-prompt rule degrades the information value of LLM-generated tests."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "huggingface-hub==1.24.0",
+    "pyarrow==25.0.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest==9.1.1"]
+# Only needed to regenerate data/mutants.jsonl. The HumanEval+ reference suites
+# import numpy; a normal experiment run reads the frozen file and does not.
+freeze = ["numpy==2.5.1"]
+
+[project.scripts]
+ruleprobe = "ruleprobe.cli:main"
+
+[build-system]
+requires = ["hatchling==1.28.0"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["ruleprobe"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

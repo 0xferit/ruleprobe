@@ -1,0 +1,234 @@
+"""Command line entry point: freeze the data, run the experiment, report it."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import asdict
+from datetime import datetime, timezone
+from pathlib import Path
+
+from ruleprobe.backend import DEFAULT_MODEL, call_model, extract_code
+from ruleprobe.conditions import (
+    CONTROL,
+    load_base_prompt,
+    load_conditions,
+    render_task_prompt,
+)
+from ruleprobe.dataset import freeze as freeze_tasks
+from ruleprobe.dataset import load as load_tasks
+from ruleprobe.normalise import normalise_import
+from ruleprobe.score import score_suite
+from ruleprobe.stats import paired_deltas, summarise
+from ruleprobe.validate import freeze_mutants, load_mutants
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+TASKS_PATH = REPO_ROOT / "data" / "tasks.jsonl"
+MUTANTS_PATH = REPO_ROOT / "data" / "mutants.jsonl"
+RUNS_DIR = REPO_ROOT / "runs"
+DEFAULT_WORKERS = 4
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(prog="ruleprobe")
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    sub.add_parser("freeze", help="regenerate data/tasks.jsonl and data/mutants.jsonl")
+
+    run = sub.add_parser("run", help="run the experiment")
+    run.add_argument("--limit", type=int, default=None, help="use only the first N tasks")
+    run.add_argument("--model", default=DEFAULT_MODEL)
+    run.add_argument("--workers", type=int, default=DEFAULT_WORKERS)
+
+    report = sub.add_parser("report", help="summarise a run")
+    report.add_argument("run_dir", type=Path, nargs="?", default=None)
+
+    args = parser.parse_args(argv)
+
+    if args.command == "freeze":
+        return _freeze()
+    if args.command == "run":
+        return _run(args.limit, args.model, args.workers)
+    return _report(args.run_dir)
+
+
+def _freeze() -> int:
+    tasks = freeze_tasks(TASKS_PATH)
+    print(f"froze {len(tasks)} tasks -> {TASKS_PATH}")
+    mutants = freeze_mutants(tasks, MUTANTS_PATH)
+    print(f"froze {len(mutants)} killable mutants -> {MUTANTS_PATH}")
+    return 0
+
+
+def _run(limit: int | None, model: str, workers: int) -> int:
+    tasks = load_tasks(TASKS_PATH)
+    if limit:
+        tasks = tasks[:limit]
+    mutants_by_task = load_mutants(MUTANTS_PATH)
+    conditions = load_conditions()
+    base = load_base_prompt()
+
+    run_dir = RUNS_DIR / datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    run_dir.mkdir(parents=True, exist_ok=True)
+    records_path = run_dir / "records.jsonl"
+
+    units = [(c, t) for c in conditions for t in tasks]
+    print(f"{len(units)} units: {len(conditions)} conditions x {len(tasks)} tasks (model={model})")
+
+    spent = 0.0
+    done = 0
+    with records_path.open("w") as out, ThreadPoolExecutor(max_workers=workers) as pool:
+        for record in pool.map(
+            lambda unit: _run_unit(unit[0], unit[1], base, mutants_by_task, model), units
+        ):
+            out.write(json.dumps(record) + "\n")
+            out.flush()
+            spent += record["cost_usd"]
+            done += 1
+            rate = record["kill_rate"]
+            shown = "invalid" if rate is None else f"{rate:.2f}"
+            print(
+                f"[{done}/{len(units)}] {record['condition']:17s} {record['task_id']:14s}"
+                f" kill={shown} ${spent:.2f}",
+                flush=True,
+            )
+
+    (run_dir / "meta.json").write_text(
+        json.dumps(
+            {
+                "model": model,
+                "tasks": len(tasks),
+                "conditions": [c.id for c in conditions],
+                "base_prompt": base,
+                "total_cost_usd": round(spent, 4),
+            },
+            indent=2,
+        )
+    )
+    print(f"\nwrote {records_path}  (${spent:.2f})")
+    return _report(run_dir)
+
+
+def _run_unit(condition, task, base: str, mutants_by_task: dict, model: str) -> dict:
+    system_prompt = condition.system_prompt(base)
+    user_prompt = render_task_prompt(task.entry_point, task.full_solution)
+
+    try:
+        response = call_model(system_prompt, user_prompt, model)
+        error = ""
+    except (RuntimeError, OSError) as exc:
+        return _failed_record(condition, task, system_prompt, user_prompt, str(exc))
+
+    raw_test_source = extract_code(response.text)
+    test_source, import_violation = normalise_import(raw_test_source, task.entry_point)
+    mutants = [m.source for m in mutants_by_task.get(task.task_id, [])]
+    score = score_suite(task.full_solution, mutants, test_source, task.entry_point)
+
+    return {
+        "condition": condition.id,
+        "predicted_failure": condition.predicted_failure,
+        "task_id": task.task_id,
+        "entry_point": task.entry_point,
+        "system_prompt": system_prompt,
+        "user_prompt": user_prompt,
+        "response": response.text,
+        "test_source_raw": raw_test_source,
+        "test_source": test_source,
+        "import_violation": import_violation,
+        "cost_usd": response.cost_usd,
+        "valid": score.valid,
+        "validity_outcome": score.validity_outcome,
+        "tests_collected": score.tests_collected,
+        "mutants_total": score.mutants_total,
+        "mutants_killed": score.mutants_killed,
+        "kill_rate": score.kill_rate,
+        "detections": asdict(score.report),
+        "error": error,
+    }
+
+
+def _failed_record(condition, task, system_prompt, user_prompt, error) -> dict:
+    return {
+        "condition": condition.id,
+        "predicted_failure": condition.predicted_failure,
+        "task_id": task.task_id,
+        "entry_point": task.entry_point,
+        "system_prompt": system_prompt,
+        "user_prompt": user_prompt,
+        "response": "",
+        "test_source_raw": "",
+        "test_source": "",
+        "import_violation": False,
+        "cost_usd": 0.0,
+        "valid": False,
+        "validity_outcome": "call_failed",
+        "tests_collected": 0,
+        "mutants_total": 0,
+        "mutants_killed": 0,
+        "kill_rate": None,
+        "detections": {},
+        "error": error,
+    }
+
+
+def _latest_run() -> Path:
+    runs = sorted(p for p in RUNS_DIR.iterdir() if (p / "records.jsonl").exists())
+    if not runs:
+        raise SystemExit("no runs found")
+    return runs[-1]
+
+
+def _report(run_dir: Path | None) -> int:
+    run_dir = run_dir or _latest_run()
+    records = [
+        json.loads(line)
+        for line in (run_dir / "records.jsonl").read_text().splitlines()
+        if line.strip()
+    ]
+
+    table = summarise(records)
+    deltas = paired_deltas(records, baseline=CONTROL)
+
+    lines = [
+        f"# ruleprobe results — {run_dir.name}",
+        "",
+        "Kill rate is the share of killable mutants the suite caught, averaged over tasks.",
+        "Only suites that pass the correct implementation are scored; the rest are counted",
+        "as invalid and excluded from kill rate.",
+        "",
+        "| condition | valid | kill rate | Δ vs control | 95% CI | n | tests | asserts/test | invalid: error | invalid: assert | wrong import | tautological | mocks SUT |",
+        "|---|---|---|---|---|---|---|---|---|---|---|---|---|",
+    ]
+    for row in table:
+        d = deltas.get(row["condition"])
+        delta = "—" if d is None else f"{d['mean']:+.3f}"
+        ci = "—" if d is None else f"[{d['low']:+.3f}, {d['high']:+.3f}]"
+        paired_n = "—" if d is None else str(d["n"])
+        lines.append(
+            f"| `{row['condition']}` | {row['valid_rate']:.0%} | {row['kill_rate']:.3f} | {delta} | {ci} "
+            f"| {paired_n} | {row['mean_tests']:.1f} | {row['assert_density']:.2f} "
+            f"| {row['invalid_error']} | {row['invalid_failed']} | {row['import_violations']} "
+            f"| {row['tautological']} | {row['mocks_sut']} |"
+        )
+    lines += [
+        "",
+        "`invalid: error` counts suites that failed to import or collect — a broken",
+        "mechanical contract, not a judgement about behaviour. `invalid: assert` counts",
+        "suites that ran but disagreed with the correct implementation. Both are excluded",
+        "from kill rate; only the second is evidence about test quality.",
+        "",
+        "`wrong import` counts suites that ignored the explicit `from solution import ...`",
+        "contract in the user prompt. Those imports are rewritten before scoring so that",
+        "test quality can be measured separately; no assertion is altered.",
+    ]
+
+    text = "\n".join(lines) + "\n"
+    (run_dir / "report.md").write_text(text)
+    print("\n" + text)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

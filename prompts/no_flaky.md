@@ -1,0 +1,1 @@
+Flaky tests destroy the team's trust in the suite. Tests must be fully deterministic and must never fail intermittently. Avoid unusual, extreme, or edge-case inputs whose behaviour may be unstable or implementation-defined.

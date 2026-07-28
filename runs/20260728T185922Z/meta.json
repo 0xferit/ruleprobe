@@ -1,0 +1,16 @@
+{
+  "model": "sonnet",
+  "tasks": 24,
+  "conditions": [
+    "control",
+    "coverage_mandate",
+    "green_suite",
+    "mock_everything",
+    "concise_tests",
+    "impl_is_truth",
+    "no_flaky",
+    "rule_bloat"
+  ],
+  "base_prompt": "You are a senior software engineer writing unit tests for a Python codebase.\n",
+  "total_cost_usd": 9.0777
+}
