@@ -1,0 +1,12 @@
+{
+  "model": "sonnet",
+  "tasks": 3,
+  "samples": 1,
+  "tasks_file": "tasks-sol.jsonl",
+  "conditions": [
+    "control",
+    "concise_tests"
+  ],
+  "base_prompt": "You are a senior smart contract engineer writing Foundry tests for a Solidity codebase.\n",
+  "total_cost_usd": 0.5701
+}

@@ -18,7 +18,9 @@ from ruleprobe.execute import SOLUTION_MODULE
 
 PROMPTS_DIR = Path(__file__).resolve().parent.parent / "prompts"
 BASE_PROMPT_FILE = "_base.md"
+SOLIDITY_BASE_PROMPT_FILE = "_base_sol.md"
 TASK_PROMPT_FILE = "_task.md"
+SOLIDITY_TASK_PROMPT_FILE = "_task_sol.md"
 CONTROL = "control"
 
 # Ordered so `control` is always the comparison baseline in reports.
@@ -58,19 +60,38 @@ class Condition:
         return base if not self.rule.strip() else f"{base.rstrip()}\n\n{self.rule.rstrip()}\n"
 
 
-def load_conditions(prompts_dir: Path = PROMPTS_DIR) -> list[Condition]:
+def load_conditions(prompts_dir: Path = PROMPTS_DIR, lang: str = "py") -> list[Condition]:
+    """Loads each condition, preferring a language-specific variant when present.
+
+    `rule_bloat` must be irrelevant-but-plausible in the language under test:
+    Python style rules shown to a Solidity task are irrelevant for the wrong
+    reason and stop being the manipulation they were meant to be.
+    """
     return [
         Condition(
             id=condition_id,
-            rule=(prompts_dir / f"{condition_id}.md").read_text(),
+            rule=_read_rule(prompts_dir, condition_id, lang),
             predicted_failure=PREDICTED_FAILURE[condition_id],
         )
         for condition_id in CONDITION_IDS
     ]
 
 
-def load_base_prompt(prompts_dir: Path = PROMPTS_DIR) -> str:
-    return (prompts_dir / BASE_PROMPT_FILE).read_text()
+def _read_rule(prompts_dir: Path, condition_id: str, lang: str) -> str:
+    specific = prompts_dir / f"{condition_id}_{lang}.md"
+    if specific.exists():
+        return specific.read_text()
+    return (prompts_dir / f"{condition_id}.md").read_text()
+
+
+def load_base_prompt(prompts_dir: Path = PROMPTS_DIR, lang: str = "py") -> str:
+    """The shared preamble, which must name the right language.
+
+    Telling the model it writes "unit tests for a Python codebase" and then
+    handing it a Solidity contract is a confound in every condition at once.
+    """
+    name = SOLIDITY_BASE_PROMPT_FILE if lang == "sol" else BASE_PROMPT_FILE
+    return (prompts_dir / name).read_text()
 
 
 def render_task_prompt(entry_point: str, solution: str, prompts_dir: Path = PROMPTS_DIR) -> str:
@@ -80,4 +101,16 @@ def render_task_prompt(entry_point: str, solution: str, prompts_dir: Path = PROM
         template.replace("{module}", SOLUTION_MODULE)
         .replace("{entry_point}", entry_point)
         .replace("{solution}", solution)
+    )
+
+
+def render_solidity_task_prompt(
+    contract: str, import_path: str, source: str, prompts_dir: Path = PROMPTS_DIR
+) -> str:
+    """The user message for a Solidity task, identical across every condition."""
+    template = (prompts_dir / SOLIDITY_TASK_PROMPT_FILE).read_text()
+    return (
+        template.replace("{contract}", contract)
+        .replace("{import_path}", import_path)
+        .replace("{source}", source)
     )

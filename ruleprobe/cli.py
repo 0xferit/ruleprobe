@@ -13,6 +13,7 @@ from pathlib import Path
 from ruleprobe.backend import DEFAULT_MODEL, call_model, extract_code
 from ruleprobe.conditions import (
     CONTROL,
+    render_solidity_task_prompt,
     load_base_prompt,
     load_conditions,
     render_task_prompt,
@@ -20,7 +21,7 @@ from ruleprobe.conditions import (
 from ruleprobe.dataset import freeze as freeze_tasks
 from ruleprobe.dataset import load as load_tasks
 from ruleprobe.normalise import normalise_import
-from ruleprobe.score import score_suite
+from ruleprobe.score import score_solidity_suite, score_suite
 from ruleprobe.stats import paired_deltas, summarise
 from ruleprobe.validate import freeze_mutants, load_mutants
 
@@ -45,6 +46,9 @@ def main(argv: list[str] | None = None) -> int:
     run.add_argument("--mutants", type=Path, default=MUTANTS_PATH)
     run.add_argument("--samples", type=int, default=1,
                      help="repeats per (condition, task); the only way to estimate\nrun-to-run variance, since the CLI exposes no temperature control")
+    run.add_argument("--lang", choices=["py", "sol"], default="py")
+    run.add_argument("--repo", type=Path, default=None,
+                     help="Solidity source repo the frozen tasks were sliced from")
     run.add_argument("--only", default=None,
                      help="comma-separated condition ids to run")
 
@@ -57,7 +61,7 @@ def main(argv: list[str] | None = None) -> int:
         return _freeze()
     if args.command == "run":
         return _run(args.limit, args.model, args.workers, args.tasks, args.mutants,
-                    args.samples, args.only)
+                    args.samples, args.only, args.lang, args.repo)
     return _report(args.run_dir)
 
 
@@ -77,16 +81,18 @@ def _run(
     mutants_path: Path = MUTANTS_PATH,
     samples: int = 1,
     only: str | None = None,
+    lang: str = "py",
+    repo: Path | None = None,
 ) -> int:
-    tasks = load_tasks(tasks_path)
+    tasks = _load_solidity_tasks(tasks_path) if lang == "sol" else load_tasks(tasks_path)
     if limit:
         tasks = tasks[:limit]
     mutants_by_task = load_mutants(mutants_path)
-    conditions = load_conditions()
+    conditions = load_conditions(lang=lang)
     if only:
         wanted = {c.strip() for c in only.split(",")}
         conditions = [c for c in conditions if c.id in wanted]
-    base = load_base_prompt()
+    base = load_base_prompt(lang=lang)
 
     run_dir = RUNS_DIR / datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -103,7 +109,7 @@ def _run(
     with records_path.open("w") as out, ThreadPoolExecutor(max_workers=workers) as pool:
         for record in pool.map(
             lambda unit: _run_unit(
-                unit[0], unit[1], base, mutants_by_task, model, unit[2]
+                unit[0], unit[1], base, mutants_by_task, model, unit[2], lang, repo
             ),
             units,
         ):
@@ -137,11 +143,30 @@ def _run(
     return _report(run_dir)
 
 
+def _load_solidity_tasks(path: Path):
+    from ruleprobe.solidity import SolidityTask
+
+    with path.open() as f:
+        return [SolidityTask(**json.loads(line)) for line in f if line.strip()]
+
+
 def _run_unit(
-    condition, task, base: str, mutants_by_task: dict, model: str, sample: int = 0
+    condition,
+    task,
+    base: str,
+    mutants_by_task: dict,
+    model: str,
+    sample: int = 0,
+    lang: str = "py",
+    repo: Path | None = None,
 ) -> dict:
     system_prompt = condition.system_prompt(base)
-    user_prompt = render_task_prompt(task.entry_point, task.full_solution)
+    if lang == "sol":
+        user_prompt = render_solidity_task_prompt(task.contract, task.entry_file, task.source)
+        entry_point = task.contract
+    else:
+        user_prompt = render_task_prompt(task.entry_point, task.full_solution)
+        entry_point = task.entry_point
 
     try:
         response = call_model(system_prompt, user_prompt, model, sample=sample)
@@ -150,16 +175,23 @@ def _run_unit(
         return _failed_record(condition, task, system_prompt, user_prompt, str(exc))
 
     raw_test_source = extract_code(response.text)
-    test_source, import_violation = normalise_import(raw_test_source, task.entry_point)
     mutants = [m.source for m in mutants_by_task.get(task.task_id, [])]
-    score = score_suite(task.full_solution, mutants, test_source, task.entry_point)
+
+    if lang == "sol":
+        test_source, import_violation = raw_test_source, False
+        score = score_solidity_suite(
+            repo, task.entry_file, task.closure, mutants, test_source, task.contract
+        )
+    else:
+        test_source, import_violation = normalise_import(raw_test_source, task.entry_point)
+        score = score_suite(task.full_solution, mutants, test_source, task.entry_point)
 
     return {
         "condition": condition.id,
         "predicted_failure": condition.predicted_failure,
         "task_id": task.task_id,
         "sample": sample,
-        "entry_point": task.entry_point,
+        "entry_point": entry_point,
         "system_prompt": system_prompt,
         "user_prompt": user_prompt,
         "response": response.text,
@@ -185,7 +217,7 @@ def _failed_record(condition, task, system_prompt, user_prompt, error) -> dict:
         "predicted_failure": condition.predicted_failure,
         "task_id": task.task_id,
         "sample": sample,
-        "entry_point": task.entry_point,
+        "entry_point": entry_point,
         "system_prompt": system_prompt,
         "user_prompt": user_prompt,
         "response": "",

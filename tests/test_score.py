@@ -55,3 +55,16 @@ def test_kill_vector_records_which_mutants_died():
 def test_kill_vector_is_empty_for_an_invalid_suite():
     score = score_suite(CORRECT, MUTANTS, BROKEN, entry_point="add")
     assert score.killed_mutants == []
+
+
+def test_solidity_score_shape_matches_python():
+    """Both languages must produce the same Score record, or the reporting and
+    statistics layers would need a second implementation of every metric."""
+    from dataclasses import fields
+
+    from ruleprobe.score import Score
+
+    names = {f.name for f in fields(Score)}
+    assert {"valid", "mutants_total", "mutants_killed", "killed_mutants"} <= names
+    # kill_rate is derived, not stored, so it is a property rather than a field
+    assert isinstance(Score.kill_rate, property)

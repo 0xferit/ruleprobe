@@ -21,7 +21,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 DEFAULT_MODEL = "sonnet"
-CALL_TIMEOUT_SECONDS = 300
+CALL_TIMEOUT_SECONDS = 900
 CACHE_DIR = Path(__file__).resolve().parent.parent / ".cache"
 
 _FENCED_BLOCK = re.compile(r"```(?:[a-zA-Z0-9_+-]*)\n(.*?)```", re.DOTALL)
@@ -40,6 +40,7 @@ def call_model(
     model: str = DEFAULT_MODEL,
     cache_dir: Path = CACHE_DIR,
     sample: int = 0,
+    timeout: int = CALL_TIMEOUT_SECONDS,
 ) -> Response:
     key = _cache_key(system_prompt, user_prompt, model, sample)
     cached = _read_cache(cache_dir, key)
@@ -66,7 +67,7 @@ def call_model(
             cwd=workdir,
             capture_output=True,
             text=True,
-            timeout=CALL_TIMEOUT_SECONDS,
+            timeout=timeout,
         )
 
     if completed.returncode != 0:

@@ -60,3 +60,54 @@ def score_suite(
         killed_mutants=killed_mutants,
         report=report,
     )
+
+
+def score_solidity_suite(
+    repo_root,
+    entry_file,
+    closure,
+    mutant_sources: list[str],
+    test_source: str,
+    contract: str,
+) -> Score:
+    """Solidity counterpart of `score_suite`, producing the identical record.
+
+    Same validity gate for the same reason: a suite that fails to build or fails
+    against the unmutated contract fails against every mutant too, and without
+    the gate would score as the strongest suite in the experiment.
+    """
+    import tempfile
+    from pathlib import Path
+
+    from ruleprobe.detect import Report
+    from ruleprobe.solidity import assemble_project, run_forge_test
+
+    repo_root = Path(repo_root)
+    entry = repo_root / entry_file
+    paths = {repo_root / c for c in closure}
+    empty = Report(0, 0, 0, 0, 0, 0)
+
+    with tempfile.TemporaryDirectory(prefix="ruleprobe-sol-") as workdir:
+        work = Path(workdir)
+        assemble_project(work, repo_root, paths, test_source)
+        baseline = run_forge_test(work)
+
+    valid = baseline.outcome == "passed"
+    killed: list[bool] = []
+    if valid:
+        for mutant in mutant_sources:
+            with tempfile.TemporaryDirectory(prefix="ruleprobe-sol-") as workdir:
+                work = Path(workdir)
+                assemble_project(work, repo_root, paths, test_source, overrides={entry: mutant})
+                result = run_forge_test(work)
+            killed.append(result.outcome != "passed")
+
+    return Score(
+        valid=valid,
+        validity_outcome=baseline.outcome,
+        tests_collected=baseline.tests_run,
+        mutants_total=len(mutant_sources) if valid else 0,
+        mutants_killed=sum(killed),
+        killed_mutants=killed,
+        report=empty,
+    )
