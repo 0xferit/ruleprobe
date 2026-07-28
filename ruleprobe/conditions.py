@@ -21,6 +21,10 @@ BASE_PROMPT_FILE = "_base.md"
 SOLIDITY_BASE_PROMPT_FILE = "_base_sol.md"
 TASK_PROMPT_FILE = "_task.md"
 SOLIDITY_TASK_PROMPT_FILE = "_task_sol.md"
+# Used only to decide whether a task is testable at all. Deliberately not in
+# CONDITION_IDS: screening on a condition's own success would select tasks that
+# condition happens to handle well and bias the comparison in its favour.
+SCREEN_PROMPT_FILE = "_screen.md"
 CONTROL = "control"
 
 # Ordered so `control` is always the comparison baseline in reports.
@@ -114,3 +118,20 @@ def render_solidity_task_prompt(
         .replace("{import_path}", import_path)
         .replace("{source}", source)
     )
+
+
+def load_screen_prompt(prompts_dir: Path = PROMPTS_DIR) -> str:
+    """The feasibility screener, which is not one of the experimental arms.
+
+    Composed from the same base prompt and the same rule-joining rule as every
+    condition, so the persona sentence exists once. A hardcoded second copy
+    would go stale the moment the base prompt is reworded, and the screener
+    would then be selecting tasks under a different persona than the
+    experiment runs under.
+    """
+    screen = Condition(
+        id="screen",
+        rule=(prompts_dir / SCREEN_PROMPT_FILE).read_text(),
+        predicted_failure="not an experimental condition",
+    )
+    return screen.system_prompt(load_base_prompt(prompts_dir, lang="sol"))

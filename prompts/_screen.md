@@ -1,0 +1,1 @@
+Your only goal here is to establish whether this contract can be unit tested in isolation at all. Write the smallest suite that compiles and passes. Use mocks, stubs, or a test harness contract freely for any external dependency. If the contract cannot be exercised without live protocol state, write the minimal suite that still compiles and passes.

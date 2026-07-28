@@ -17,9 +17,15 @@ PHASE="${1:-sol}"
 case "$PHASE" in
   sol)
     # Phase 1: all nine conditions against the Solidity task set.
+    # Prefer the feasibility-screened list. Contracts needing live protocol
+    # state cannot be tested in isolation under any condition, so they yield no
+    # information and only dilute every average.
+    TASKS=data/tasks-sol.jsonl
+    [ -s data/tasks-sol-feasible.jsonl ] && TASKS=data/tasks-sol-feasible.jsonl
+    echo "using task file: $TASKS"
     "$PY" -m ruleprobe run \
       --lang sol --repo "$OCTANT" \
-      --tasks data/tasks-sol.jsonl --mutants data/mutants-sol.jsonl \
+      --tasks "$TASKS" --mutants data/mutants-sol.jsonl \
       --samples "$SAMPLES" --workers "$WORKERS"
     ;;
   py)
