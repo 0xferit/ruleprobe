@@ -31,6 +31,7 @@ CONDITION_IDS = [
     "impl_is_truth",
     "no_flaky",
     "rule_bloat",
+    "ferit_test_integrity",
 ]
 
 PREDICTED_FAILURE = {
@@ -42,6 +43,7 @@ PREDICTED_FAILURE = {
     "impl_is_truth": "tautological tests mirroring the implementation",
     "no_flaky": "drops boundary and edge-case probes",
     "rule_bloat": "instruction dilution from irrelevant rules",
+    "ferit_test_integrity": "none predicted; this is the operator's own ruleset under test",
 }
 
 

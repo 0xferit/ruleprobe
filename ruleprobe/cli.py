@@ -41,6 +41,8 @@ def main(argv: list[str] | None = None) -> int:
     run.add_argument("--limit", type=int, default=None, help="use only the first N tasks")
     run.add_argument("--model", default=DEFAULT_MODEL)
     run.add_argument("--workers", type=int, default=DEFAULT_WORKERS)
+    run.add_argument("--tasks", type=Path, default=TASKS_PATH)
+    run.add_argument("--mutants", type=Path, default=MUTANTS_PATH)
 
     report = sub.add_parser("report", help="summarise a run")
     report.add_argument("run_dir", type=Path, nargs="?", default=None)
@@ -50,7 +52,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "freeze":
         return _freeze()
     if args.command == "run":
-        return _run(args.limit, args.model, args.workers)
+        return _run(args.limit, args.model, args.workers, args.tasks, args.mutants)
     return _report(args.run_dir)
 
 
@@ -62,11 +64,17 @@ def _freeze() -> int:
     return 0
 
 
-def _run(limit: int | None, model: str, workers: int) -> int:
-    tasks = load_tasks(TASKS_PATH)
+def _run(
+    limit: int | None,
+    model: str,
+    workers: int,
+    tasks_path: Path = TASKS_PATH,
+    mutants_path: Path = MUTANTS_PATH,
+) -> int:
+    tasks = load_tasks(tasks_path)
     if limit:
         tasks = tasks[:limit]
-    mutants_by_task = load_mutants(MUTANTS_PATH)
+    mutants_by_task = load_mutants(mutants_path)
     conditions = load_conditions()
     base = load_base_prompt()
 
@@ -100,6 +108,7 @@ def _run(limit: int | None, model: str, workers: int) -> int:
             {
                 "model": model,
                 "tasks": len(tasks),
+                "tasks_file": str(tasks_path.name),
                 "conditions": [c.id for c in conditions],
                 "base_prompt": base,
                 "total_cost_usd": round(spent, 4),
@@ -143,6 +152,7 @@ def _run_unit(condition, task, base: str, mutants_by_task: dict, model: str) -> 
         "tests_collected": score.tests_collected,
         "mutants_total": score.mutants_total,
         "mutants_killed": score.mutants_killed,
+        "killed_mutants": score.killed_mutants,
         "kill_rate": score.kill_rate,
         "detections": asdict(score.report),
         "error": error,
@@ -167,6 +177,7 @@ def _failed_record(condition, task, system_prompt, user_prompt, error) -> dict:
         "tests_collected": 0,
         "mutants_total": 0,
         "mutants_killed": 0,
+        "killed_mutants": [],
         "kill_rate": None,
         "detections": {},
         "error": error,
