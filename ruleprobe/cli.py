@@ -43,6 +43,10 @@ def main(argv: list[str] | None = None) -> int:
     run.add_argument("--workers", type=int, default=DEFAULT_WORKERS)
     run.add_argument("--tasks", type=Path, default=TASKS_PATH)
     run.add_argument("--mutants", type=Path, default=MUTANTS_PATH)
+    run.add_argument("--samples", type=int, default=1,
+                     help="repeats per (condition, task); the only way to estimate\nrun-to-run variance, since the CLI exposes no temperature control")
+    run.add_argument("--only", default=None,
+                     help="comma-separated condition ids to run")
 
     report = sub.add_parser("report", help="summarise a run")
     report.add_argument("run_dir", type=Path, nargs="?", default=None)
@@ -52,7 +56,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "freeze":
         return _freeze()
     if args.command == "run":
-        return _run(args.limit, args.model, args.workers, args.tasks, args.mutants)
+        return _run(args.limit, args.model, args.workers, args.tasks, args.mutants,
+                    args.samples, args.only)
     return _report(args.run_dir)
 
 
@@ -70,26 +75,37 @@ def _run(
     workers: int,
     tasks_path: Path = TASKS_PATH,
     mutants_path: Path = MUTANTS_PATH,
+    samples: int = 1,
+    only: str | None = None,
 ) -> int:
     tasks = load_tasks(tasks_path)
     if limit:
         tasks = tasks[:limit]
     mutants_by_task = load_mutants(mutants_path)
     conditions = load_conditions()
+    if only:
+        wanted = {c.strip() for c in only.split(",")}
+        conditions = [c for c in conditions if c.id in wanted]
     base = load_base_prompt()
 
     run_dir = RUNS_DIR / datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     run_dir.mkdir(parents=True, exist_ok=True)
     records_path = run_dir / "records.jsonl"
 
-    units = [(c, t) for c in conditions for t in tasks]
-    print(f"{len(units)} units: {len(conditions)} conditions x {len(tasks)} tasks (model={model})")
+    units = [(c, t, s) for c in conditions for t in tasks for s in range(samples)]
+    print(
+        f"{len(units)} units: {len(conditions)} conditions x {len(tasks)} tasks "
+        f"x {samples} samples (model={model})"
+    )
 
     spent = 0.0
     done = 0
     with records_path.open("w") as out, ThreadPoolExecutor(max_workers=workers) as pool:
         for record in pool.map(
-            lambda unit: _run_unit(unit[0], unit[1], base, mutants_by_task, model), units
+            lambda unit: _run_unit(
+                unit[0], unit[1], base, mutants_by_task, model, unit[2]
+            ),
+            units,
         ):
             out.write(json.dumps(record) + "\n")
             out.flush()
@@ -108,6 +124,7 @@ def _run(
             {
                 "model": model,
                 "tasks": len(tasks),
+                "samples": samples,
                 "tasks_file": str(tasks_path.name),
                 "conditions": [c.id for c in conditions],
                 "base_prompt": base,
@@ -120,12 +137,14 @@ def _run(
     return _report(run_dir)
 
 
-def _run_unit(condition, task, base: str, mutants_by_task: dict, model: str) -> dict:
+def _run_unit(
+    condition, task, base: str, mutants_by_task: dict, model: str, sample: int = 0
+) -> dict:
     system_prompt = condition.system_prompt(base)
     user_prompt = render_task_prompt(task.entry_point, task.full_solution)
 
     try:
-        response = call_model(system_prompt, user_prompt, model)
+        response = call_model(system_prompt, user_prompt, model, sample=sample)
         error = ""
     except (RuntimeError, OSError) as exc:
         return _failed_record(condition, task, system_prompt, user_prompt, str(exc))
@@ -139,6 +158,7 @@ def _run_unit(condition, task, base: str, mutants_by_task: dict, model: str) -> 
         "condition": condition.id,
         "predicted_failure": condition.predicted_failure,
         "task_id": task.task_id,
+        "sample": sample,
         "entry_point": task.entry_point,
         "system_prompt": system_prompt,
         "user_prompt": user_prompt,
@@ -164,6 +184,7 @@ def _failed_record(condition, task, system_prompt, user_prompt, error) -> dict:
         "condition": condition.id,
         "predicted_failure": condition.predicted_failure,
         "task_id": task.task_id,
+        "sample": sample,
         "entry_point": task.entry_point,
         "system_prompt": system_prompt,
         "user_prompt": user_prompt,

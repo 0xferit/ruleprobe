@@ -1,0 +1,13 @@
+{
+  "model": "sonnet",
+  "tasks": 8,
+  "samples": 8,
+  "tasks_file": "tasks-bmk.jsonl",
+  "conditions": [
+    "control",
+    "concise_tests",
+    "ferit_test_integrity"
+  ],
+  "base_prompt": "You are a senior software engineer writing unit tests for a Python codebase.\n",
+  "total_cost_usd": 13.5332
+}

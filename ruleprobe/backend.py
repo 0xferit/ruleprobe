@@ -39,8 +39,9 @@ def call_model(
     user_prompt: str,
     model: str = DEFAULT_MODEL,
     cache_dir: Path = CACHE_DIR,
+    sample: int = 0,
 ) -> Response:
-    key = _cache_key(system_prompt, user_prompt, model)
+    key = _cache_key(system_prompt, user_prompt, model, sample)
     cached = _read_cache(cache_dir, key)
     if cached is not None:
         return Response(text=cached["text"], cost_usd=0.0, cached=True)
@@ -92,8 +93,14 @@ def extract_code(response_text: str) -> str:
     return response_text.strip()
 
 
-def _cache_key(system_prompt: str, user_prompt: str, model: str) -> str:
-    payload = json.dumps([system_prompt, user_prompt, model], sort_keys=True)
+def _cache_key(system_prompt: str, user_prompt: str, model: str, sample: int = 0) -> str:
+    """Distinct per sample.
+
+    The CLI exposes no temperature control, so repeated samples are the only way
+    to estimate run-to-run variance. Keying the cache on the prompt alone would
+    hand back one response N times and report a spread of exactly zero.
+    """
+    payload = json.dumps([system_prompt, user_prompt, model, sample], sort_keys=True)
     return hashlib.sha256(payload.encode()).hexdigest()[:32]
 
 

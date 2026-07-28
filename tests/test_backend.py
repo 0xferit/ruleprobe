@@ -22,3 +22,22 @@ def test_unfenced_response_is_treated_as_code():
 
 def test_empty_response_yields_empty_string():
     assert extract_code("") == ""
+
+
+from ruleprobe.backend import _cache_key
+
+
+def test_samples_get_distinct_cache_keys():
+    """Without this, n=5 replication silently returns one cached response five
+    times and reports zero variance: n=1 wearing a disguise."""
+    keys = {_cache_key("sys", "user", "sonnet", sample) for sample in range(5)}
+    assert len(keys) == 5
+
+
+def test_the_same_sample_is_still_cached():
+    assert _cache_key("sys", "user", "sonnet", 2) == _cache_key("sys", "user", "sonnet", 2)
+
+
+def test_sample_zero_is_stable_across_calls():
+    """Sample 0 must stay reproducible so existing runs re-score from cache."""
+    assert _cache_key("sys", "user", "sonnet", 0) == _cache_key("sys", "user", "sonnet", 0)
