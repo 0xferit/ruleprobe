@@ -14,6 +14,22 @@ SAMPLES="${SAMPLES:-3}"
 WORKERS="${WORKERS:-6}"
 PHASE="${1:-sol}"
 
+# Killing the orchestrator orphans its forge/solc/claude children rather than
+# reaping them, and the watchdog relaunches on crash, so they accumulate across
+# restarts: load climbs while throughput does not. Clear stragglers first.
+# `claude -p` is only ever a harness call; an interactive session is not -p.
+# Patterns come from the modules that build the invocations, so a change to
+# either command cannot leave this silently matching nothing.
+CLAUDE_PATTERN=$("${PY:-.venv/bin/python}" -c 'import sys; sys.path.insert(0,"."); from ruleprobe.backend import PROCESS_PATTERN; print(PROCESS_PATTERN)')
+FORGE_PATTERN=$("${PY:-.venv/bin/python}" -c 'import sys; sys.path.insert(0,"."); from ruleprobe.solidity import PROCESS_PATTERN; print(PROCESS_PATTERN)')
+reap() {
+  pkill -9 -f "$FORGE_PATTERN" 2>/dev/null
+  pkill -9 -f "$CLAUDE_PATTERN" 2>/dev/null
+  sleep 2
+}
+reap
+trap reap EXIT INT TERM
+
 case "$PHASE" in
   sol)
     # Phase 1: all nine conditions against the Solidity task set.

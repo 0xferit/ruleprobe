@@ -19,6 +19,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from ruleprobe.backend import PROCESS_PATTERN as CLAUDE_PATTERN
 from ruleprobe.conditions import CONDITION_IDS
 from ruleprobe.runs import latest_run, planned_units
 
@@ -79,7 +80,7 @@ def main() -> None:
     print(f"  rate {speed}   eta {eta}")
 
     alive = os.popen("pgrep -f 'ruleprobe run' | wc -l").read().strip()
-    calls = os.popen("pgrep -f 'claude -p' | wc -l").read().strip()
+    calls = os.popen(f"pgrep -f '{CLAUDE_PATTERN}' | wc -l").read().strip()
     print(f"  campaign {'running' if alive != '0' else 'NOT RUNNING'}   {calls} calls in flight")
 
     grouped = defaultdict(list)

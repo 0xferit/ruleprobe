@@ -111,3 +111,47 @@ def score_solidity_suite(
         killed_mutants=killed,
         report=empty,
     )
+
+
+# --- Score cache -------------------------------------------------------
+#
+# Scoring is deterministic in (task, mutant set, suite), and it is the slow
+# half of a unit: a model response is cached, but re-running forge or pytest
+# over an already-scored unit is not. Without this, every relaunch replays the
+# entire completed prefix, and the replay grows with each restart.
+
+import json
+from dataclasses import asdict
+from pathlib import Path
+
+from ruleprobe.cache import SCORE_CACHE_DIR, cache_key
+
+
+def score_key(lang: str, task_id: str, mutant_sources: list[str], test_source: str) -> str:
+    """Identity of a scoring job.
+
+    The mutant set is part of the key: a score carried over to a changed set of
+    mutants would silently misreport kill rate, which is the headline number.
+    """
+    return cache_key([lang, task_id, list(mutant_sources), test_source])
+
+
+def read_score_cache(cache_dir: Path, key: str) -> Score | None:
+    path = Path(cache_dir) / f"{key}.json"
+    if not path.exists():
+        return None
+    try:
+        payload = json.loads(path.read_text())
+        # Reconstructed generically, mirroring asdict on the way out. Restating
+        # the field list here would mean a new Score field silently produced
+        # cache misses instead of an error.
+        payload["report"] = Report(**payload["report"])
+        return Score(**payload)
+    except (json.JSONDecodeError, KeyError, TypeError):
+        return None
+
+
+def write_score_cache(cache_dir: Path, key: str, score: Score) -> None:
+    cache_dir = Path(cache_dir)
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    (cache_dir / f"{key}.json").write_text(json.dumps(asdict(score)))

@@ -21,9 +21,18 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
+from ruleprobe.cache import RESPONSE_CACHE_DIR, cache_key
+
+CLI_EXECUTABLE = "claude"
+HEADLESS_FLAG = "-p"
+# Pattern matching a harness-spawned call, for monitoring and for reaping
+# orphans. Defined beside the invocation it describes: a monitor that greps for
+# a signature the code no longer produces reports zero and looks healthy.
+PROCESS_PATTERN = f"{CLI_EXECUTABLE} {HEADLESS_FLAG}"
+
 DEFAULT_MODEL = "sonnet"
 CALL_TIMEOUT_SECONDS = 900
-CACHE_DIR = Path(__file__).resolve().parent.parent / ".cache"
+CACHE_DIR = RESPONSE_CACHE_DIR
 # The CLI occasionally exits non-zero with empty stderr. Retrying costs one
 # call; not retrying costs the unit.
 CALL_ATTEMPTS = 3
@@ -75,8 +84,8 @@ def _invoke(
     with tempfile.TemporaryDirectory(prefix="ruleprobe-call-") as workdir:
         completed = subprocess.run(
             [
-                "claude",
-                "-p",
+                CLI_EXECUTABLE,
+                HEADLESS_FLAG,
                 user_prompt,
                 "--system-prompt",
                 system_prompt,
@@ -125,8 +134,7 @@ def _cache_key(system_prompt: str, user_prompt: str, model: str, sample: int = 0
     to estimate run-to-run variance. Keying the cache on the prompt alone would
     hand back one response N times and report a spread of exactly zero.
     """
-    payload = json.dumps([system_prompt, user_prompt, model, sample], sort_keys=True)
-    return hashlib.sha256(payload.encode()).hexdigest()[:32]
+    return cache_key([system_prompt, user_prompt, model, sample])
 
 
 def _read_cache(cache_dir: Path, key: str) -> dict | None:

@@ -21,7 +21,14 @@ from ruleprobe.conditions import (
 from ruleprobe.dataset import freeze as freeze_tasks
 from ruleprobe.dataset import load as load_tasks
 from ruleprobe.normalise import normalise_import
-from ruleprobe.score import score_solidity_suite, score_suite
+from ruleprobe.score import (
+    SCORE_CACHE_DIR,
+    read_score_cache,
+    score_key,
+    score_solidity_suite,
+    score_suite,
+    write_score_cache,
+)
 from ruleprobe.stats import paired_deltas, summarise
 from ruleprobe.validate import freeze_mutants, load_mutants
 
@@ -181,12 +188,22 @@ def _run_unit(
 
         if lang == "sol":
             test_source, import_violation = raw_test_source, False
-            score = score_solidity_suite(
-                repo, task.entry_file, task.closure, mutants, test_source, task.contract
-            )
         else:
             test_source, import_violation = normalise_import(raw_test_source, task.entry_point)
-            score = score_suite(task.full_solution, mutants, test_source, task.entry_point)
+
+        # Scoring is the slow half of a unit and is deterministic in its
+        # inputs, so a relaunch must not re-run forge or pytest over work
+        # already done. Without this the replay grows with every restart.
+        key = score_key(lang, task.task_id, mutants, test_source)
+        score = read_score_cache(SCORE_CACHE_DIR, key)
+        if score is None:
+            if lang == "sol":
+                score = score_solidity_suite(
+                    repo, task.entry_file, task.closure, mutants, test_source, task.contract
+                )
+            else:
+                score = score_suite(task.full_solution, mutants, test_source, task.entry_point)
+            write_score_cache(SCORE_CACHE_DIR, key, score)
     except Exception as exc:
         return _failed_record(
             condition, task, system_prompt, user_prompt, f"{type(exc).__name__}: {exc}",

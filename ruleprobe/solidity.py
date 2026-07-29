@@ -39,6 +39,10 @@ DEFAULT_SOLC = "0.8.33"
 DEFAULT_FUZZ_RUNS = 32
 FORGE_TIMEOUT_SECONDS = 180
 TEST_FILENAME = "Generated.t.sol"
+FORGE_EXECUTABLE = "forge"
+FORGE_TEST_SUBCOMMAND = "test"
+# Same reasoning as backend.PROCESS_PATTERN: the pattern lives with the call.
+PROCESS_PATTERN = f"{FORGE_EXECUTABLE} {FORGE_TEST_SUBCOMMAND}"
 
 
 @dataclass(frozen=True)
@@ -148,7 +152,7 @@ def run_forge_test(workdir: Path, timeout: int = FORGE_TIMEOUT_SECONDS) -> Forge
     """
     try:
         completed = subprocess.run(
-            ["forge", "test"],
+            [FORGE_EXECUTABLE, FORGE_TEST_SUBCOMMAND],
             cwd=workdir,
             capture_output=True,
             text=True,
