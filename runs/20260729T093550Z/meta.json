@@ -1,0 +1,19 @@
+{
+  "model": "sonnet",
+  "tasks": 28,
+  "samples": 3,
+  "tasks_file": "tasks-sol-feasible.jsonl",
+  "conditions": [
+    "control",
+    "coverage_mandate",
+    "green_suite",
+    "mock_everything",
+    "concise_tests",
+    "impl_is_truth",
+    "no_flaky",
+    "rule_bloat",
+    "ferit_test_integrity"
+  ],
+  "base_prompt": "You are a senior smart contract engineer writing Foundry tests for a Solidity codebase.\n",
+  "total_cost_usd": 22.5995
+}
