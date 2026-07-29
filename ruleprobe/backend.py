@@ -17,12 +17,17 @@ import json
 import re
 import subprocess
 import tempfile
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
 DEFAULT_MODEL = "sonnet"
 CALL_TIMEOUT_SECONDS = 900
 CACHE_DIR = Path(__file__).resolve().parent.parent / ".cache"
+# The CLI occasionally exits non-zero with empty stderr. Retrying costs one
+# call; not retrying costs the unit.
+CALL_ATTEMPTS = 3
+RETRY_BACKOFF_SECONDS = 5
 
 _FENCED_BLOCK = re.compile(r"```(?:[a-zA-Z0-9_+-]*)\n(.*?)```", re.DOTALL)
 
@@ -47,6 +52,25 @@ def call_model(
     if cached is not None:
         return Response(text=cached["text"], cost_usd=0.0, cached=True)
 
+    last_error: Exception | None = None
+    for attempt in range(CALL_ATTEMPTS):
+        try:
+            return _invoke(system_prompt, user_prompt, model, cache_dir, key, timeout)
+        except RuntimeError as exc:
+            last_error = exc
+            if attempt + 1 < CALL_ATTEMPTS:
+                time.sleep(RETRY_BACKOFF_SECONDS * (attempt + 1))
+    raise last_error  # type: ignore[misc]
+
+
+def _invoke(
+    system_prompt: str,
+    user_prompt: str,
+    model: str,
+    cache_dir: Path,
+    key: str,
+    timeout: int,
+) -> Response:
     # A scratch cwd keeps any CLAUDE.md near the repo out of the call.
     with tempfile.TemporaryDirectory(prefix="ruleprobe-call-") as workdir:
         completed = subprocess.run(

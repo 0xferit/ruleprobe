@@ -168,23 +168,30 @@ def _run_unit(
         user_prompt = render_task_prompt(task.entry_point, task.full_solution)
         entry_point = task.entry_point
 
+    # A broad catch is deliberate. pool.map propagates any exception and aborts
+    # the entire run, so one bad unit out of hundreds must never be able to take
+    # the campaign down with it. The cost of over-catching is one lost unit; the
+    # cost of under-catching was 756.
     try:
         response = call_model(system_prompt, user_prompt, model, sample=sample)
         error = ""
-    except (RuntimeError, OSError) as exc:
-        return _failed_record(condition, task, system_prompt, user_prompt, str(exc))
 
-    raw_test_source = extract_code(response.text)
-    mutants = [m.source for m in mutants_by_task.get(task.task_id, [])]
+        raw_test_source = extract_code(response.text)
+        mutants = [m.source for m in mutants_by_task.get(task.task_id, [])]
 
-    if lang == "sol":
-        test_source, import_violation = raw_test_source, False
-        score = score_solidity_suite(
-            repo, task.entry_file, task.closure, mutants, test_source, task.contract
+        if lang == "sol":
+            test_source, import_violation = raw_test_source, False
+            score = score_solidity_suite(
+                repo, task.entry_file, task.closure, mutants, test_source, task.contract
+            )
+        else:
+            test_source, import_violation = normalise_import(raw_test_source, task.entry_point)
+            score = score_suite(task.full_solution, mutants, test_source, task.entry_point)
+    except Exception as exc:
+        return _failed_record(
+            condition, task, system_prompt, user_prompt, f"{type(exc).__name__}: {exc}",
+            sample, entry_point,
         )
-    else:
-        test_source, import_violation = normalise_import(raw_test_source, task.entry_point)
-        score = score_suite(task.full_solution, mutants, test_source, task.entry_point)
 
     return {
         "condition": condition.id,
@@ -211,7 +218,16 @@ def _run_unit(
     }
 
 
-def _failed_record(condition, task, system_prompt, user_prompt, error) -> dict:
+def _failed_record(
+    condition, task, system_prompt, user_prompt, error, sample: int, entry_point: str
+) -> dict:
+    """A unit that could not be scored, recorded rather than raised.
+
+    Takes `sample` and `entry_point` explicitly: they were previously read as
+    free variables belonging to the caller, so this raised NameError the moment
+    it was reached, turning every transient model-call failure into a crash
+    that aborted the whole run.
+    """
     return {
         "condition": condition.id,
         "predicted_failure": condition.predicted_failure,
