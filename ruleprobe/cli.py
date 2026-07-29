@@ -22,6 +22,7 @@ from ruleprobe.dataset import freeze as freeze_tasks
 from ruleprobe.dataset import load as load_tasks
 from ruleprobe.normalise import normalise_import
 from ruleprobe.score import (
+    CALL_FAILED,
     SCORE_CACHE_DIR,
     read_score_cache,
     score_key,
@@ -259,7 +260,7 @@ def _failed_record(
         "import_violation": False,
         "cost_usd": 0.0,
         "valid": False,
-        "validity_outcome": "call_failed",
+        "validity_outcome": CALL_FAILED,
         "tests_collected": 0,
         "mutants_total": 0,
         "mutants_killed": 0,

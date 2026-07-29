@@ -21,7 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from ruleprobe.backend import PROCESS_PATTERN as CLAUDE_PATTERN
 from ruleprobe.conditions import CONDITION_IDS
-from ruleprobe.runs import latest_run, planned_units
+from ruleprobe.runs import latest_run, planned_units, usable_units
 
 STATE = Path(".progress-state.json")
 BAR_WIDTH = 44
@@ -64,7 +64,10 @@ def main() -> None:
         return
 
     total = planned_units(records)
-    done = len(records)
+    # The bar tracks usable units. Counting failure placeholders as progress is
+    # how a run with four empty conditions displayed 756/756 complete.
+    done = usable_units(records)
+    failed = len(records) - done
     fraction = done / total if total else 0
     spent = sum(r.get("cost_usd") or 0.0 for r in records)
     fresh = [r for r in records if (r.get("cost_usd") or 0) > 0]
@@ -78,6 +81,8 @@ def main() -> None:
         f"projected ${spent + (total - done) * unit_cost:,.0f}"
     )
     print(f"  rate {speed}   eta {eta}")
+    if failed:
+        print(f"  {failed} units failed their model call and will be retried")
 
     alive = os.popen("pgrep -f 'ruleprobe run' | wc -l").read().strip()
     calls = os.popen(f"pgrep -f '{CLAUDE_PATTERN}' | wc -l").read().strip()

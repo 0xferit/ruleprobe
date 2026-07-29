@@ -14,6 +14,12 @@ from ruleprobe.detect import Report, analyze
 from ruleprobe.execute import DEFAULT_TIMEOUT_SECONDS, Outcome, run_suite
 
 
+# validity_outcome when the model call itself never succeeded, so the unit holds
+# no result at all. Distinct from every execution outcome: an execution outcome
+# means code ran and was judged.
+CALL_FAILED = "call_failed"
+
+
 @dataclass(frozen=True)
 class Score:
     valid: bool

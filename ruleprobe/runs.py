@@ -13,6 +13,7 @@ import json
 from pathlib import Path
 
 from ruleprobe.conditions import CONDITION_IDS
+from ruleprobe.score import CALL_FAILED
 
 RUNS_DIR = Path("runs")
 SOLIDITY_SUFFIX = ".sol"
@@ -55,3 +56,12 @@ def planned_units(records: list[dict]) -> int:
     tasks = {r["task_id"] for r in records}
     samples = max(r.get("sample", 0) for r in records) + 1
     return max(len(tasks) * len(CONDITION_IDS) * samples, len(records))
+
+
+def usable_units(records: list[dict]) -> int:
+    """Records that actually carry a result, excluding failed model calls.
+
+    Counting a failed call as progress lets a run of pure failures report itself
+    complete, which stopped the watchdog at "756/756" with four conditions empty.
+    """
+    return sum(1 for r in records if r.get("validity_outcome") != CALL_FAILED)

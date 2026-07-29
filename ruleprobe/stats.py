@@ -14,6 +14,7 @@ import random
 from statistics import mean
 
 from ruleprobe.conditions import CONDITION_IDS
+from ruleprobe.score import CALL_FAILED
 
 BOOTSTRAP_RESAMPLES = 10000
 CONFIDENCE = 0.95
@@ -51,7 +52,7 @@ def summarise(records: list[dict]) -> list[dict]:
                 # means it disagreed about behaviour. Merging them would let a
                 # renamed import read as a collapse in test quality.
                 "invalid_error": sum(
-                    1 for r in group if r.get("validity_outcome") in {"error", "call_failed"}
+                    1 for r in group if r.get("validity_outcome") in {"error", CALL_FAILED}
                 ),
                 "invalid_failed": sum(
                     1 for r in group if r.get("validity_outcome") == "failed"
@@ -61,7 +62,7 @@ def summarise(records: list[dict]) -> list[dict]:
                     1
                     for r in group
                     if not r["valid"]
-                    and r.get("validity_outcome") not in {"error", "call_failed", "failed"}
+                    and r.get("validity_outcome") not in {"error", CALL_FAILED, "failed"}
                 ),
             }
         )

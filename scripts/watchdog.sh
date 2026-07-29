@@ -19,10 +19,13 @@ print(planned_units(latest_run()[1]))')}"
 
 log() { echo "[$(date '+%H:%M:%S')] $*" >> "$LOG"; }
 
+# Counts records that carry a result. A raw line count treats a failed model
+# call as progress, so a run whose calls were all rate-limited reports itself
+# complete with no data in it.
 progress() {
-  local latest
-  latest=$(ls -d runs/*/ 2>/dev/null | tail -1)
-  [ -n "$latest" ] && [ -f "$latest/records.jsonl" ] && wc -l < "$latest/records.jsonl" | tr -d ' ' || echo 0
+  "$PY" -c 'import sys; sys.path.insert(0, ".")
+from ruleprobe.runs import latest_run, usable_units
+print(usable_units(latest_run()[1]))' 2>/dev/null || echo 0
 }
 
 log "watchdog started, target $TARGET units"

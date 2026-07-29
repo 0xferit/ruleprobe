@@ -54,3 +54,25 @@ def test_planned_units_never_undercounts_what_is_already_done():
 
 def test_planned_units_of_nothing_is_zero():
     assert planned_units([]) == 0
+
+
+def test_usable_units_excludes_failed_calls():
+    """A run whose calls all failed has a full record count and looks complete.
+    The watchdog stopped on exactly that, declaring 756/756 when 465 of those
+    records were failure placeholders holding no data."""
+    from ruleprobe.runs import usable_units
+
+    records = [
+        {"validity_outcome": "passed"},
+        {"validity_outcome": "failed"},
+        {"validity_outcome": "error"},
+        {"validity_outcome": "call_failed"},
+        {"validity_outcome": "call_failed"},
+    ]
+    assert usable_units(records) == 3
+
+
+def test_usable_units_of_nothing_is_zero():
+    from ruleprobe.runs import usable_units
+
+    assert usable_units([]) == 0
