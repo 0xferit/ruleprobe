@@ -1,7 +1,10 @@
 """Live progress for a running campaign.
 
-Run it any time:            .venv/bin/python scripts/progress.py
-Refresh every 30 seconds:   watch -n30 .venv/bin/python scripts/progress.py
+Run it any time:  .venv/bin/python scripts/progress.py
+
+To refresh continuously, loop in the shell. macOS ships no `watch`:
+
+    while true; do clear; .venv/bin/python scripts/progress.py; sleep 30; done
 
 Rate and ETA come from the delta between successive invocations, recorded in a
 small state file, so the first run shows no rate and every run after it does.
