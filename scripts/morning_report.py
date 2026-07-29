@@ -15,26 +15,14 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from ruleprobe.conditions import CONTROL
+from ruleprobe.runs import latest_run, planned_units
 from ruleprobe.stats import paired_deltas, summarise
 
-RUNS = Path("runs")
 OUT = Path("MORNING-REPORT.md")
 
 
-def latest_solidity_run() -> tuple[Path | None, list[dict]]:
-    """The most recent run whose records are Solidity tasks."""
-    for directory in sorted(RUNS.iterdir(), reverse=True):
-        records = directory / "records.jsonl"
-        if not records.exists():
-            continue
-        lines = [line for line in records.read_text().splitlines() if line.strip()]
-        if lines and json.loads(lines[0])["task_id"].endswith(".sol"):
-            return directory, [json.loads(line) for line in lines]
-    return None, []
-
-
 def main() -> None:
-    directory, records = latest_solidity_run()
+    directory, records = latest_run(solidity_only=True)
     if not records:
         OUT.write_text("# Morning report\n\nNo Solidity records were produced.\n")
         return
@@ -43,7 +31,7 @@ def main() -> None:
     tasks = {r["task_id"] for r in records}
     conditions = {r["condition"] for r in records}
     samples = len({r.get("sample", 0) for r in records})
-    expected = len(tasks) * len(conditions) * samples
+    expected = planned_units(records)
 
     table = summarise(records)
     deltas = paired_deltas(records, baseline=CONTROL)

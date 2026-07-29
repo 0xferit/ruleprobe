@@ -8,3 +8,6 @@ __pycache__/
 # Model-response cache. Keyed by prompt hash; regenerating costs API spend,
 # but it is a cache, not a result. Results live in runs/ and are committed.
 .cache/
+
+# Sampled between progress.py invocations to compute rate; not a result.
+.progress-state.json
