@@ -33,10 +33,21 @@ PROCESS_PATTERN = f"{CLI_EXECUTABLE} {HEADLESS_FLAG}"
 DEFAULT_MODEL = "sonnet"
 CALL_TIMEOUT_SECONDS = 900
 CACHE_DIR = RESPONSE_CACHE_DIR
-# The CLI occasionally exits non-zero with empty stderr. Retrying costs one
-# call; not retrying costs the unit.
-CALL_ATTEMPTS = 3
-RETRY_BACKOFF_SECONDS = 5
+# Retry schedule, sized for rate limiting rather than a one-off blip.
+#
+# Twenty-eight concurrent calls exceeded what the API would accept and 465 of
+# 756 units were recorded as permanent failures. The old schedule was three
+# attempts at 5 and 10 seconds, so every attempt landed inside the same
+# throttling window. A rate limit needs minutes of patience, not seconds.
+CALL_ATTEMPTS = 6
+FIRST_BACKOFF_SECONDS = 30
+BACKOFF_MULTIPLIER = 2
+MAX_BACKOFF_SECONDS = 480
+
+
+def backoff_seconds(attempt: int) -> int:
+    """Exponential wait before retry `attempt`, capped."""
+    return min(FIRST_BACKOFF_SECONDS * BACKOFF_MULTIPLIER**attempt, MAX_BACKOFF_SECONDS)
 
 _FENCED_BLOCK = re.compile(r"```(?:[a-zA-Z0-9_+-]*)\n(.*?)```", re.DOTALL)
 
@@ -68,7 +79,7 @@ def call_model(
         except RuntimeError as exc:
             last_error = exc
             if attempt + 1 < CALL_ATTEMPTS:
-                time.sleep(RETRY_BACKOFF_SECONDS * (attempt + 1))
+                time.sleep(backoff_seconds(attempt))
     raise last_error  # type: ignore[misc]
 
 
@@ -104,7 +115,10 @@ def _invoke(
         )
 
     if completed.returncode != 0:
-        raise RuntimeError(f"claude exited {completed.returncode}: {completed.stderr[:500]}")
+        # stderr was empty on every rate-limited call, so include stdout: with
+        # only "claude exited 1" to go on, the cause took a full run to find.
+        detail = (completed.stderr or "").strip() or (completed.stdout or "").strip()
+        raise RuntimeError(f"claude exited {completed.returncode}: {detail[:400]}")
 
     payload = json.loads(completed.stdout)
     if payload.get("is_error"):
